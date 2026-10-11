@@ -250,18 +250,39 @@ def infer_schema(
     if columns is None:
         return pa.unify_schemas(schemas)
 
-    if _get_datachain_schema(schemas[0]):
-        raise ValueError("columns can't be used with files written by DataChain")
-    names = list(dict.fromkeys(n for s in schemas for n in s.names))
+    # Files written by DataChain are picked by signal; a signal is stored as its
+    # nested `signal.field` columns.
+    signal_schema = _get_datachain_schema(schemas[0])
+    names = (
+        list(signal_schema.values)
+        if signal_schema
+        else list(dict.fromkeys(n for s in schemas for n in s.names))
+    )
     raw = {n: n for n in names} | normalize_col_names(names)
     if missing := [c for c in columns if c not in raw]:
         raise ValueError(f"Columns {missing} not found. Available columns: {names}")
     selected = list(dict.fromkeys(raw[c] for c in columns))
+
+    def keep(name: str) -> bool:
+        if name in selected:
+            return True
+        return signal_schema is not None and any(
+            name.startswith(f"{c}.") for c in selected
+        )
+
     # Only the selected columns need compatible types across files.
     merged = pa.unify_schemas(
-        [pa.schema([s.field(c) for c in selected if c in s.names]) for s in schemas]
+        [pa.schema([f for f in s if keep(f.name)]) for s in schemas]
     )
-    return pa.schema([merged.field(c) for c in selected], metadata=schemas[0].metadata)
+    metadata = schemas[0].metadata
+    if signal_schema:
+        picked = SignalSchema({c: signal_schema.values[c] for c in selected})
+        metadata = {
+            **metadata,
+            DATACHAIN_SIGNAL_SCHEMA_PARQUET_KEY: json.dumps(picked.serialize()),
+        }
+        return merged.with_metadata(metadata)
+    return pa.schema([merged.field(c) for c in selected], metadata=metadata)
 
 
 def schema_to_output(
