@@ -113,6 +113,9 @@ class ArrowGenerator(Generator):
             and DATACHAIN_SIGNAL_SCHEMA_PARQUET_KEY in ds.schema.metadata
         )
 
+        if self.output_schema and not use_datachain_schema:
+            _check_output(self.output_schema, ds.schema.names, file)
+
         kw = {}
         if self.nrows:
             kw = {"batch_size": min(self.DEFAULT_BATCH_SIZE, self.nrows)}
@@ -202,7 +205,36 @@ class ArrowGenerator(Generator):
         return [self.output_schema(**vals_dict)]
 
 
-def infer_schema(chain: "DataChain", **kwargs) -> pa.Schema:
+def _check_output(
+    output_schema: type["BaseModel"], columns: list[str], file: File
+) -> None:
+    """Fail when output can't be meant for these columns, in this order."""
+    fields = list(output_schema.model_fields)
+    if len(fields) != len(columns):
+        raise ValueError(
+            f"output has {len(fields)} fields but '{file.path}' has {len(columns)} "
+            "columns. output names the columns read, in order; pick columns with "
+            "columns=."
+        )
+    positions = {name: i for i, name in enumerate(columns)}
+    for clean, raw in normalize_col_names(columns).items():
+        positions.setdefault(clean, positions[raw])
+    if moved := [f for i, f in enumerate(fields) if positions.get(f, i) != i]:
+        raise ValueError(
+            f"output fields {moved} are columns of '{file.path}' at other "
+            "positions. output names the columns read, in order; pick and order "
+            "columns with columns=."
+        )
+
+
+def infer_schema(
+    chain: "DataChain", columns: Sequence[str] | None = None, **kwargs
+) -> pa.Schema:
+    """Merge the files' schemas. With `columns`, keep only those, in that order.
+
+    Column names can be written as in the file or as DataChain cleans them, e.g.
+    "Unit Price (USD)" or "unit_price_usd".
+    """
     parse_options = kwargs.pop("parse_options", None)
     if format := kwargs.get("format"):
         kwargs["format"] = fix_pyarrow_format(format, parse_options)
@@ -215,7 +247,21 @@ def infer_schema(chain: "DataChain", **kwargs) -> pa.Schema:
         raise ValueError(
             "Cannot infer schema (no files to process or can't access them)"
         )
-    return pa.unify_schemas(schemas)
+    if columns is None:
+        return pa.unify_schemas(schemas)
+
+    if _get_datachain_schema(schemas[0]):
+        raise ValueError("columns can't be used with files written by DataChain")
+    names = list(dict.fromkeys(n for s in schemas for n in s.names))
+    raw = {n: n for n in names} | normalize_col_names(names)
+    if missing := [c for c in columns if c not in raw]:
+        raise ValueError(f"Columns {missing} not found. Available columns: {names}")
+    selected = list(dict.fromkeys(raw[c] for c in columns))
+    # Only the selected columns need compatible types across files.
+    merged = pa.unify_schemas(
+        [pa.schema([s.field(c) for c in selected if c in s.names]) for s in schemas]
+    )
+    return pa.schema([merged.field(c) for c in selected], metadata=schemas[0].metadata)
 
 
 def schema_to_output(
