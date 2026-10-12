@@ -285,7 +285,9 @@ class GCSClient(Client):
 
     def _entry_from_dict(self, d: dict[str, Any]) -> File:
         info = self.fs._process_object(self.name, d)
-        return self.info_to_file(info, self.rel_path(info["name"]))
+        # the raw object name is the key; gcsfs drops the bucket from a name
+        # with a leading "/", so it cannot be split back into a key
+        return self.info_to_file(info, d["name"])
 
     def info_to_file(self, v: dict[str, Any], path: str) -> File:
         return File(
