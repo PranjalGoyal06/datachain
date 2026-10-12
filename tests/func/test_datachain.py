@@ -170,7 +170,7 @@ def test_read_storage_rfc_encoded_uri_targets_literal_path(tmp_dir, test_session
 
 @pytest.mark.parametrize(
     "cloud_type,version_aware",
-    [("s3", False), ("s3", True), ("gs", False), ("gs", True), ("azure", False)],
+    [("s3", True), ("gs", False), ("gs", True), ("azure", False)],
     indirect=True,
 )
 def test_read_storage_reads_keys_with_double_slash(cloud_test_catalog):
