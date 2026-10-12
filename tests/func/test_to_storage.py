@@ -369,10 +369,10 @@ def test_to_storage_collapses_empty_segments_locally(
     prefix = f"empty-seg-{num_threads}"
     keys = {
         "x//alone.txt": b"alone",
-        "r/b.txt": b"real",  # a real file owns its path
+        "r/b.txt": b"real",
         "r//b.txt": b"odd",
         "p//q.txt": b"two slashes",
-        "p///q.txt": b"three slashes",  # the smallest key wins
+        "p///q.txt": b"three slashes",
     }
     for key, data in keys.items():
         client.fs.pipe_file(f"{client.name}/{prefix}/{key}", data)
