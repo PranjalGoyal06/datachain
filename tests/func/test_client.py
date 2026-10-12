@@ -80,8 +80,8 @@ def test_scandir_keeps_keys_with_empty_segments(client):
         client.fs.pipe_file(f"{client.name}/{key}", body)
     try:
         paths = sorted(e.path for e in scandir(client, ""))
-        # a folder marker is skipped; objects with empty segments are real files
-        assert paths == sorted(["a", "d//e.txt", "/lead.txt"])
+        # a folder marker and a leading slash are skipped, "//" inside is kept
+        assert paths == ["a", "d//e.txt"]
     finally:
         for key in keys:
             client.fs.rm_file(f"{client.name}/{key}")

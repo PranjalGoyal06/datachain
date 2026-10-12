@@ -369,13 +369,12 @@ class Client(ABC):
     @staticmethod
     def _is_valid_key(key: str) -> bool:
         """
-        Check if the key is an object rather than a folder marker.
+        Check if the key should be indexed.
 
-        A key ending with ``/`` is a folder placeholder and is ignored when
-        indexing. Keys with a leading ``/`` or an empty segment (``a//b``)
-        are real objects and are kept.
+        Folder markers (``a/``) and keys with a leading ``/`` are skipped
+        (see #2040); keys with ``//`` inside (``a//b``) are kept.
         """
-        return not key.endswith("/")
+        return not (key.startswith("/") or key.endswith("/"))
 
     def _is_version_aware(self) -> bool:
         return getattr(self.fs, "version_aware", False)

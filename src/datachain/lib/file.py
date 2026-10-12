@@ -553,7 +553,8 @@ class File(DataModel):
             file.parent  # 'data/subdir'
             ```
         """
-        return str(PurePosixPath(self.path).parent)
+        # not PurePosixPath: it drops the '//' that the key and SQL keep
+        return posixpath.dirname(self.path) or "."
 
     @contextmanager
     def open(

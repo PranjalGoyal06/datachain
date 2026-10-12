@@ -215,6 +215,14 @@ def test_export_collapses_empty_segments(create_file, tmp_path, monkeypatch, cap
     assert "File 'dir//file.txt' has an empty segment ('//')" in caplog.text
 
 
+@pytest.mark.parametrize(
+    "path,parent",
+    [("x.txt", "."), ("a/b.txt", "a"), ("d//e.txt", "d"), ("a/b//c/d.txt", "a/b//c")],
+)
+def test_parent_keeps_empty_segments(path, parent):
+    assert File(source="s3://bkt", path=path).parent == parent
+
+
 def _uri_via_helper(p: Path) -> str:
     return path_to_fsspec_uri(str(p))
 
