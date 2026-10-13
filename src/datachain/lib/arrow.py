@@ -227,14 +227,8 @@ def _check_output(
         )
 
 
-def infer_schema(
-    chain: "DataChain", columns: Sequence[str] | None = None, **kwargs
-) -> pa.Schema:
-    """Merge the files' schemas. With `columns`, keep only those, in that order.
-
-    Column names can be written as in the file or as DataChain cleans them, e.g.
-    "Unit Price (USD)" or "unit_price_usd".
-    """
+def file_schemas(chain: "DataChain", **kwargs) -> list[pa.Schema]:
+    """Return the schema of each file in the chain."""
     parse_options = kwargs.pop("parse_options", None)
     if format := kwargs.get("format"):
         kwargs["format"] = fix_pyarrow_format(format, parse_options)
@@ -247,13 +241,31 @@ def infer_schema(
         raise ValueError(
             "Cannot infer schema (no files to process or can't access them)"
         )
-    if columns is None:
-        return pa.unify_schemas(schemas)
+    return schemas
 
-    if _get_datachain_schema(schemas[0]):
+
+def infer_schema(chain: "DataChain", **kwargs) -> pa.Schema:
+    return pa.unify_schemas(file_schemas(chain, **kwargs))
+
+
+def merge_schemas(
+    schemas: list[pa.Schema], columns: Sequence[str] | None = None
+) -> tuple[pa.Schema, list[str] | None]:
+    """Merge the files' schemas. With `columns`, keep only those, in that order.
+
+    Column names can be written as in the file or as DataChain cleans them, e.g.
+    "Unit Price (USD)" or "unit_price_usd". With `columns`, also returns the
+    cleaned names of the kept columns, cleaned over the whole header as in a
+    full read.
+    """
+    if columns is None:
+        return pa.unify_schemas(schemas), None
+
+    if any(_get_datachain_schema(s) for s in schemas):
         raise ValueError("columns can't be used with files written by DataChain")
     names = list(dict.fromkeys(n for s in schemas for n in s.names))
-    raw = {n: n for n in names} | normalize_col_names(names)
+    cleaned = normalize_col_names(names)
+    raw = {n: n for n in names} | cleaned
     if missing := [c for c in columns if c not in raw]:
         raise ValueError(f"Columns {missing} not found. Available columns: {names}")
     selected = list(dict.fromkeys(raw[c] for c in columns))
@@ -261,7 +273,11 @@ def infer_schema(
     merged = pa.unify_schemas(
         [pa.schema([s.field(c) for c in selected if c in s.names]) for s in schemas]
     )
-    return pa.schema([merged.field(c) for c in selected], metadata=schemas[0].metadata)
+    schema = pa.schema(
+        [merged.field(c) for c in selected], metadata=schemas[0].metadata
+    )
+    clean = {r: c for c, r in cleaned.items()}
+    return schema, [clean[c] for c in selected]
 
 
 def schema_to_output(

@@ -2103,6 +2103,31 @@ def test_read_csv_columns(tmp_dir, test_session):
     assert chain.to_list("zip_code", "customer_first_name") == [("02134", "Alice")]
 
 
+def test_read_csv_columns_keep_cleaned_names(tmp_dir, test_session):
+    # A full read names these first_name (Alice) and c0_first_name (Bob).
+    path = tmp_dir / "names.csv"
+    path.write_text("First Name,First-Name\nAlice,Bob\n")
+    chain = dc.read_csv(
+        path.as_uri(), columns=["c0_first_name", "first_name"], session=test_session
+    )
+    assert chain.to_list("first_name", "c0_first_name") == [("Alice", "Bob")]
+    chain = dc.read_csv(path.as_uri(), columns=["c0_first_name"], session=test_session)
+    assert chain.to_values("c0_first_name") == ["Bob"]
+
+
+def test_read_csv_no_header_columns(tmp_dir, test_session):
+    path = tmp_dir / "test.csv"
+    path.write_text("1,2,3\n")
+    chain = dc.read_csv(
+        path.as_uri(),
+        header=False,
+        columns=["f2", "f0"],
+        output=["c", "a"],
+        session=test_session,
+    )
+    assert chain.to_list("c", "a") == [(3, 1)]
+
+
 def test_read_csv_tab_delimited(tmp_dir, test_session):
     df = pd.DataFrame(DF_DATA)
     path = tmp_dir / "test.csv"
@@ -2399,6 +2424,17 @@ def test_read_parquet_columns_files_in_different_order(tmp_dir, test_session):
 def test_read_parquet_columns_not_found(abc_parquet, test_session):
     with pytest.raises(DatasetPrepareError, match=r"Columns \['x'\] not found"):
         dc.read_parquet(abc_parquet, columns=["x"], session=test_session)
+
+
+@pytest.mark.parametrize("exported", ["1.parquet", "2.parquet"])
+def test_read_parquet_columns_some_files_written_by_datachain(
+    tmp_dir, test_session, exported
+):
+    plain = "2.parquet" if exported == "1.parquet" else "1.parquet"
+    pq.write_table(pa.table({"x": [1]}), tmp_dir / plain)
+    dc.read_values(x=[2], session=test_session).to_parquet(tmp_dir / exported)
+    with pytest.raises(DatasetPrepareError, match="written by DataChain"):
+        dc.read_parquet(tmp_dir.as_uri(), columns=["x"], session=test_session)
 
 
 def test_read_parquet_columns_written_by_datachain(tmp_dir, test_session):
