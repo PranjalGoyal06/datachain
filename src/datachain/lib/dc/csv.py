@@ -51,7 +51,8 @@ def read_csv(
             inference is disabled.
         parse_options: Tells the parser how to process lines.
             See https://arrow.apache.org/docs/python/generated/pyarrow.csv.ParseOptions.html
-        columns: Names of the columns to read, in this order.
+        columns: Names of the columns to read, in this order. Without a header,
+            the columns are named f0, f1, and so on.
 
     Example:
         Reading a csv file:
@@ -94,7 +95,9 @@ def read_csv(
         if not output:
             msg = "error parsing csv - provide output if no header"
             raise DatasetPrepareError(chain.name, msg)
-        if isinstance(output, Sequence):
+        if columns is not None:
+            pass  # columns picks from the generated names: f0, f1, ...
+        elif isinstance(output, Sequence):
             column_names = output  # type: ignore[assignment]
         elif isinstance(output, dict):
             column_names = list(output.keys())
@@ -105,7 +108,10 @@ def read_csv(
             raise DatasetPrepareError(chain.name, msg)
 
     parse_options = ParseOptions(**parse_options)
-    read_options = ReadOptions(column_names=column_names)
+    read_options = ReadOptions(
+        column_names=column_names,
+        autogenerate_column_names=not header and columns is not None,
+    )
     convert_options = ConvertOptions(
         strings_can_be_null=True,
         null_values=STR_NA_VALUES,

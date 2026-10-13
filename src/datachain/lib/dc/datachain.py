@@ -2551,8 +2551,9 @@ class DataChain:
 
         from datachain.lib.arrow import (
             ArrowGenerator,
+            file_schemas,
             fix_pyarrow_format,
-            infer_schema,
+            merge_schemas,
             schema_to_output,
         )
 
@@ -2578,11 +2579,10 @@ class DataChain:
         col_names = output if isinstance(output, Sequence) else None
         if col_names or not output or columns is not None:
             try:
-                schema = infer_schema(
-                    self, columns, **kwargs, parse_options=parse_options
-                )
+                schemas = file_schemas(self, **kwargs, parse_options=parse_options)
+                schema, names = merge_schemas(schemas, columns)
                 if col_names or not output:
-                    output, _ = schema_to_output(schema, col_names)
+                    output, _ = schema_to_output(schema, col_names or names)
             except ValueError as e:
                 raise DatasetPrepareError(self.name, e) from e
 
