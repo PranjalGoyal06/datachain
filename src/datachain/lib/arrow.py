@@ -1,3 +1,4 @@
+import hashlib
 import math
 from collections.abc import Sequence
 from itertools import islice
@@ -91,6 +92,14 @@ class ArrowGenerator(Generator):
         self.nrows = nrows
         self.parse_options = kwargs.pop("parse_options", None)
         self.kwargs = kwargs
+
+    def hash(self, include_body: bool = True) -> str:
+        # The read schema decides which columns are read and how, so reads that
+        # differ only in it must not reuse each other's results.
+        schema = self.input_schema.to_string() if self.input_schema else ""
+        return hashlib.sha256(
+            (super().hash(include_body) + schema).encode()
+        ).hexdigest()
 
     def process(self, file: File):
         if file._caching_enabled:
@@ -208,22 +217,13 @@ class ArrowGenerator(Generator):
 def _check_output(
     output_schema: type["BaseModel"], columns: list[str], file: File
 ) -> None:
-    """Fail when output can't be meant for these columns, in this order."""
-    fields = list(output_schema.model_fields)
-    if len(fields) != len(columns):
+    """Fail when output doesn't have one field per column read."""
+    fields = len(output_schema.model_fields)
+    if fields != len(columns):
         raise ValueError(
-            f"output has {len(fields)} fields but '{file.path}' has {len(columns)} "
+            f"output has {fields} fields but '{file.path}' has {len(columns)} "
             "columns. output names the columns read, in order; pick columns with "
             "columns=."
-        )
-    positions = {name: i for i, name in enumerate(columns)}
-    for clean, raw in normalize_col_names(columns).items():
-        positions.setdefault(clean, positions[raw])
-    if moved := [f for i, f in enumerate(fields) if positions.get(f, i) != i]:
-        raise ValueError(
-            f"output fields {moved} are columns of '{file.path}' at other "
-            "positions. output names the columns read, in order; pick and order "
-            "columns with columns=."
         )
 
 

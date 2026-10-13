@@ -2419,19 +2419,27 @@ def test_read_parquet_columns_written_by_datachain(tmp_dir, test_session):
         dc.read_parquet(path.as_uri(), columns=["x"], session=test_session)
 
 
-@pytest.mark.parametrize(
-    "output,match",
-    [
-        ({"c": float}, "output has 1 fields but .* has 3 columns"),
-        ({"c": float, "b": float, "a": float}, r"\['c', 'a'\] are columns"),
-    ],
-)
-def test_read_parquet_output_must_fit_columns_read(
-    abc_parquet, test_session, output, match
-):
-    chain = dc.read_parquet(abc_parquet, output=output, session=test_session)
-    with pytest.raises(ValueError, match=match):
+def test_read_parquet_output_must_fit_columns_read(abc_parquet, test_session):
+    chain = dc.read_parquet(abc_parquet, output={"c": float}, session=test_session)
+    with pytest.raises(ValueError, match=r"output has 1 fields but .* has 3 columns"):
         chain.to_list()
+
+
+def test_read_parquet_output_renames_by_position(abc_parquet, test_session):
+    output = {"c": float, "b": float, "a": float}
+    chain = dc.read_parquet(abc_parquet, output=output, session=test_session)
+    assert chain.to_list("c", "b", "a") == [(1.0, 10.0, 100.0)]
+
+
+def test_read_parquet_columns_are_part_of_the_step(abc_parquet, test_session):
+    # Reads that differ only in columns must not reuse each other's results.
+    def read(column):
+        return dc.read_parquet(
+            abc_parquet, columns=[column], output={"x": float}, session=test_session
+        ).to_values("x")
+
+    assert read("a") == [1.0]
+    assert read("b") == [10.0]
 
 
 def test_read_parquet_exported_with_source(test_session, tmp_dir):
