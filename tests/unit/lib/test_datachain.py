@@ -2127,6 +2127,11 @@ def test_read_csv_no_header_columns(tmp_dir, test_session):
     )
     assert chain.to_list("c", "a") == [(3, 1)]
 
+    chain = dc.read_csv(
+        path.as_uri(), header=False, columns=["f2"], session=test_session
+    )
+    assert chain.to_values("f2") == [3]
+
 
 def test_read_csv_tab_delimited(tmp_dir, test_session):
     df = pd.DataFrame(DF_DATA)

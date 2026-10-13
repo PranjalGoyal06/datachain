@@ -91,13 +91,12 @@ def read_csv(
     chain = read_storage(path, session=session, settings=settings, **kwargs)
 
     column_names = None
-    if not header:
+    # With columns=, a file without a header is read with generated names.
+    if not header and columns is None:
         if not output:
             msg = "error parsing csv - provide output if no header"
             raise DatasetPrepareError(chain.name, msg)
-        if columns is not None:
-            pass  # columns picks from the generated names: f0, f1, ...
-        elif isinstance(output, Sequence):
+        if isinstance(output, Sequence):
             column_names = output  # type: ignore[assignment]
         elif isinstance(output, dict):
             column_names = list(output.keys())
