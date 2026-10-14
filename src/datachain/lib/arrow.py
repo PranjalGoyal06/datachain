@@ -268,7 +268,9 @@ def merge_schemas(
     raw = {n: n for n in names} | cleaned
     if missing := [c for c in columns if c not in raw]:
         raise ValueError(f"Columns {missing} not found. Available columns: {names}")
-    selected = list(dict.fromkeys(raw[c] for c in columns))
+    selected = [raw[c] for c in columns]
+    if len(set(selected)) < len(selected):
+        raise ValueError(f"Columns {list(columns)} name a column more than once")
     # Only the selected columns need compatible types across files.
     merged = pa.unify_schemas(
         [pa.schema([s.field(c) for c in selected if c in s.names]) for s in schemas]
