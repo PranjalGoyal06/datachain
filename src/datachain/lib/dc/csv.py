@@ -94,7 +94,7 @@ def read_csv(
     # With columns=, a file without a header is read with generated names.
     if not header and columns is None:
         if not output:
-            msg = "error parsing csv - provide output if no header"
+            msg = "error parsing csv - provide output or columns if no header"
             raise DatasetPrepareError(chain.name, msg)
         if isinstance(output, Sequence):
             column_names = output  # type: ignore[assignment]

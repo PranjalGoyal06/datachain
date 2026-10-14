@@ -2115,6 +2115,14 @@ def test_read_csv_columns_keep_cleaned_names(tmp_dir, test_session):
     assert chain.to_values("c0_first_name") == ["Bob"]
 
 
+@pytest.mark.parametrize("columns", [["b", "b"], ["First Name", "first_name"]])
+def test_read_csv_columns_repeated(tmp_dir, test_session, columns):
+    path = tmp_dir / "test.csv"
+    path.write_text("First Name,b\nAlice,2\n")
+    with pytest.raises(DatasetPrepareError, match="name a column more than once"):
+        dc.read_csv(path.as_uri(), columns=columns, session=test_session)
+
+
 def test_read_csv_no_header_columns(tmp_dir, test_session):
     path = tmp_dir / "test.csv"
     path.write_text("1,2,3\n")
