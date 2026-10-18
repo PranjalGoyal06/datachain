@@ -313,8 +313,11 @@ def test_cp_double_subdir(cloud_test_catalog):
     assert tree_from_path(dest) == {"dog4": "ruff"}
 
 
+@pytest.mark.parametrize(
+    "src,expected", [("", {"d": {"e.txt": "real"}}), ("d/", {"e.txt": "real"})]
+)
 @pytest.mark.parametrize("cloud_type", ["s3"], indirect=True)
-def test_cp_skips_keys_with_double_slash(cloud_test_catalog, caplog):
+def test_cp_skips_keys_with_double_slash(cloud_test_catalog, caplog, src, expected):
     ctc = cloud_test_catalog
     client = ctc.catalog.get_client(ctc.src_uri)
     prefix = "cp-double-slash"
@@ -324,12 +327,12 @@ def test_cp_skips_keys_with_double_slash(cloud_test_catalog, caplog):
     dest = ctc.working_dir / "data"
     try:
         with caplog.at_level("WARNING", logger="datachain"):
-            ctc.catalog.cp([f"{ctc.src_uri}/{prefix}/"], str(dest), recursive=True)
+            ctc.catalog.cp([f"{ctc.src_uri}/{prefix}/{src}"], str(dest), recursive=True)
     finally:
         client.fs.rm(f"{client.name}/{prefix}", recursive=True)
         client.fs.invalidate_cache()
 
-    assert tree_from_path(dest) == {"d": {"e.txt": "real"}}
+    assert tree_from_path(dest) == expected
     assert f"File '{prefix}/d//e.txt' not copied: path has '//'" in caplog.text
 
 

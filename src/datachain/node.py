@@ -183,7 +183,7 @@ class NodeWithPath:
         self, client: "Client", output: str, progress_bar, *, force: bool = False
     ):
         # a local disk cannot hold an empty path segment
-        if "//" in "/".join(self.path):
+        if "//" in self.n.path:
             logger.warning("File '%s' not copied: path has '//'", self.n.path)
             return
         dst = os.path.join(output, *self.path)
