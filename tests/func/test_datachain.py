@@ -195,10 +195,14 @@ def test_read_storage_reads_keys_with_double_slash(cloud_test_catalog):
     [("s3", True), ("gs", True)],
     indirect=True,
 )
-def test_read_storage_versions(cloud_test_catalog):
+def test_read_storage_versions(cloud_test_catalog, cloud_prefix):
     ctc = cloud_test_catalog
     session = ctc.session
-    prefix = f"history-{uuid.uuid4().hex[:8]}"
+    prefix = cloud_prefix
+    (ctc.src / prefix / "kept").write_text("1")
+    (ctc.src / prefix / "kept").write_text("22")  # a second version
+    (ctc.src / prefix / "gone").write_text("x")
+    (ctc.src / prefix / "gone").unlink()  # a deleted object
     uri = f"{ctc.src_uri}/{prefix}"
 
     def listing(versions):
@@ -206,30 +210,23 @@ def test_read_storage_versions(cloud_test_catalog):
         (info,) = [ls for ls in session.catalog.listings() if ls.name == name]
         return info
 
-    (ctc.src / prefix / "kept").write_text("1")
-    (ctc.src / prefix / "kept").write_text("22")  # a second version
-    (ctc.src / prefix / "gone").write_text("x")
-    (ctc.src / prefix / "gone").unlink()  # a deleted object
-    try:
-        full = dc.read_storage(uri, session=session).to_list("file.path", "file.size")
-        current = dc.read_storage(uri, session=session, versions=False)
+    full = dc.read_storage(uri, session=session).to_list("file.path", "file.size")
+    current = dc.read_storage(uri, session=session, versions=False)
 
-        assert full == [(f"{prefix}/kept", 2)]
-        assert current.to_list("file.path", "file.size", "file.version") == [
-            (f"{prefix}/kept", 2, "")
-        ]
-        # the two listings are cached apart and hold different rows
-        assert listing(True).versions
-        assert not listing(False).versions
-        assert listing(True).uri == listing(False).uri == f"{uri}/"
-        assert listing(False).num_objects == 1
-        assert listing(True).num_objects > 1
-        assert {ls.name for ls in session.catalog.listings(prefix=f"{uri}/")} == {
-            listing(True).name,
-            listing(False).name,
-        }
-    finally:
-        (ctc.src / prefix / "kept").unlink()
+    assert full == [(f"{prefix}/kept", 2)]
+    assert current.to_list("file.path", "file.size", "file.version") == [
+        (f"{prefix}/kept", 2, "")
+    ]
+    # the two listings are cached apart and hold different rows
+    assert listing(True).versions
+    assert not listing(False).versions
+    assert listing(True).uri == listing(False).uri == f"{uri}/"
+    assert listing(False).num_objects == 1
+    assert listing(True).num_objects > 1
+    assert {ls.name for ls in session.catalog.listings(prefix=f"{uri}/")} == {
+        listing(True).name,
+        listing(False).name,
+    }
 
 
 @pytest.mark.parametrize(
