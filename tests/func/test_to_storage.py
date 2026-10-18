@@ -15,7 +15,7 @@ import datachain as dc
 from datachain import Session
 from datachain.lib.file import File, ImageFile
 from tests.conftest import get_cloud_test_catalog, make_cloud_server
-from tests.utils import images_equal, skip_if_not_sqlite
+from tests.utils import images_equal, skip_if_not_sqlite, tree_from_path
 
 python_exc = sys.executable or "python3"
 
@@ -359,50 +359,28 @@ def test_cross_cloud_transfer(
             pass
 
 
-@pytest.mark.parametrize("num_threads", [1, 4])
 @pytest.mark.parametrize("cloud_type", ["s3"], indirect=True)
-def test_to_storage_collapses_empty_segments_locally(
-    cloud_test_catalog, tmp_dir, num_threads, caplog
-):
+def test_to_storage_skips_empty_segments_locally(cloud_test_catalog, tmp_dir, caplog):
     ctc = cloud_test_catalog
     client = ctc.catalog.get_client(ctc.src_uri)
-    prefix = f"empty-seg-{num_threads}"
-    keys = {
-        "x//alone.txt": b"alone",
-        "r/b.txt": b"real",
-        "r//b.txt": b"odd",
-        "p//q.txt": b"two slashes",
-        "p///q.txt": b"three slashes",
-    }
+    prefix = "empty-seg"
+    keys = {"r/b.txt": b"real", "r//b.txt": b"odd", "x//alone.txt": b"alone"}
     for key, data in keys.items():
         client.fs.pipe_file(f"{client.name}/{prefix}/{key}", data)
     client.fs.invalidate_cache()
-    out = tmp_dir / f"out-{num_threads}"
+    out = tmp_dir / "out"
     try:
         with caplog.at_level("WARNING", logger="datachain"):
             dc.read_storage(f"{ctc.src_uri}/{prefix}", session=ctc.session).to_storage(
-                out, placement="filepath", num_threads=num_threads
+                out, placement="filepath"
             )
     finally:
-        for key in keys:
-            client.fs.rm_file(f"{client.name}/{prefix}/{key}")
+        client.fs.rm(f"{client.name}/{prefix}", recursive=True)
         client.fs.invalidate_cache()
 
-    assert (out / prefix / "x" / "alone.txt").read_bytes() == b"alone"
-    assert (out / prefix / "r" / "b.txt").read_bytes() == b"real"
-    assert (out / prefix / "p" / "q.txt").read_bytes() == b"three slashes"
-    messages = [r.getMessage() for r in caplog.records]
-    assert f"File '{prefix}/x//alone.txt' has an empty segment ('//'), " in "\n".join(
-        messages
-    )
-    assert (
-        f"File '{prefix}/r//b.txt' not exported: '{prefix}/r/b.txt' belongs to "
-        f"'{prefix}/r/b.txt'" in messages
-    )
-    assert (
-        f"File '{prefix}/p//q.txt' not exported: '{prefix}/p/q.txt' belongs to "
-        f"'{prefix}/p///q.txt'" in messages
-    )
+    assert tree_from_path(out) == {prefix: {"r": {"b.txt": "real"}}}
+    for key in ("r//b.txt", "x//alone.txt"):
+        assert f"File '{prefix}/{key}' not exported: path has '//'" in caplog.text
 
 
 @pytest.mark.parametrize("cloud_type", ["s3"], indirect=True)

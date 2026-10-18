@@ -202,17 +202,12 @@ def test_export_rejects_traversal(create_file, tmp_path):
         file.export(output, placement="filename", use_cache=False)
 
 
-def test_export_collapses_empty_segments(create_file, tmp_path, monkeypatch, caplog):
+def test_export_rejects_empty_segments(create_file, tmp_path):
     file = create_file("s3://mybkt", path="dir//file.txt", etag="etag")
-    save = Mock()
-    monkeypatch.setattr(File, "save", save)
 
     output = tmp_path / "output"
-    with caplog.at_level("WARNING", logger="datachain"):
+    with pytest.raises(FileError, match="must not contain empty segments"):
         file.export(output, placement="filepath", use_cache=False)
-
-    assert Path(save.call_args.args[0]) == output / "dir" / "file.txt"
-    assert "File 'dir//file.txt' has an empty segment ('//')" in caplog.text
 
 
 @pytest.mark.parametrize(

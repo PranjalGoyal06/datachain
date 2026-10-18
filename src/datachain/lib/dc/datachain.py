@@ -51,14 +51,7 @@ from datachain.lib.data_model import (
     dict_to_data_model,
     unwrap_optional,
 )
-from datachain.lib.file import (
-    EXPORT_FILES_MAX_THREADS,
-    ArrowRow,
-    File,
-    FileExporter,
-    collapse_empty_segments,
-    drop_collisions,
-)
+from datachain.lib.file import EXPORT_FILES_MAX_THREADS, ArrowRow, File, FileExporter
 from datachain.lib.file import ExportPlacement as FileExportPlacement
 from datachain.lib.model_store import ModelStore
 from datachain.lib.settings import Settings
@@ -3122,35 +3115,23 @@ class DataChain:
         )
         from datachain.client.fsspec import Client
 
-        # a local disk has no '//': those keys go last and never replace a real file
-        double_slash: list[File] = []
-        if Client.get_implementation(stringify_path(output)).PREFIX == "file://":
-            has_double_slash = C(f"{signal}.path").like("%//%")
-            double_slash = cast(
-                "list[File]", chain.filter(has_double_slash).to_values(signal)
-            )
-            chain = chain.filter(~has_double_slash)
-        targets = {
-            collapse_empty_segments(f._get_destination_suffix(placement))
-            for f in double_slash
-        }
-        taken: dict[str, str] = {}
+        is_local = Client.get_implementation(stringify_path(output)).PREFIX == "file://"
 
         def files(rows_iter):
             for (file,) in rows_iter:
-                if targets:
-                    dst = file._get_destination_suffix(placement)
-                    if dst in targets:
-                        taken[dst] = file.path
+                # a local disk cannot hold an empty path segment
+                if (
+                    is_local
+                    and file
+                    and "//" in file._get_destination_suffix(placement)
+                ):
+                    logger.warning("File '%s' not exported: path has '//'", file.path)
+                    progress_bar.update(1)
+                    continue
                 yield file
 
         with closing(chain.to_iter(signal)) as rows_iter:
             file_exporter.run(files(rows_iter), progress_bar)
-
-        if double_slash:
-            kept = drop_collisions(double_slash, placement, taken)
-            file_exporter.run(iter(kept), progress_bar)
-            progress_bar.update(len(double_slash) - len(kept))
 
     def shuffle(self) -> "Self":
         """Shuffle rows with a best-effort deterministic ordering.
