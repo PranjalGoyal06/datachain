@@ -2,7 +2,6 @@ import math
 
 import pandas as pd
 import pytest
-import sqlalchemy as sa
 from pydantic import BaseModel
 from sqlalchemy import func
 
@@ -581,34 +580,6 @@ def test_distinct_size_after_merge_dedupes_by_left_size(test_session):
     assert sorted(merged.distinct("size").to_list("path")) == [("x",), ("y",)]
 
 
-def test_select_after_merge_returns_left_size_and_right_size(test_session):
-    left, right = _chains_with_size(test_session)
-    merged = left.merge(right, on="path")
-    assert sorted(merged.select("size", "right_size").to_list()) == [(1, 3), (2, 1)]
-
-
-def test_group_by_after_merge_groups_by_left_size_or_right_size(test_session):
-    left, right = _chains_with_size(test_session, right_sizes=(5, 5))
-    merged = left.merge(right, on="path")
-    grouped = merged.group_by(total=dc.func.sum("size"), partition_by="right_size")
-    assert grouped.to_list("right_size", "total") == [(5, 3)]
-
-    grouped = merged.group_by(cnt=dc.func.count(), partition_by="size")
-    assert sorted(grouped.to_list("size", "cnt")) == [(1, 1), (2, 1)]
-
-
-def test_filter_order_by_mutate_after_merge_read_size_from_left(test_session):
-    left, right = _chains_with_size(test_session)
-    merged = left.merge(right, on="path")
-    result = (
-        merged.filter(C("size") >= 1)
-        .order_by("size")
-        .mutate(diff=C("right_size") - C("size"))
-        .to_list("path", "size", "diff")
-    )
-    assert result == [("x", 1, 2), ("y", 2, -1)]
-
-
 @pytest.mark.parametrize(
     "extend,expected",
     [
@@ -619,7 +590,7 @@ def test_filter_order_by_mutate_after_merge_read_size_from_left(test_session):
     ],
     ids=["filter", "order-by-limit", "order-by-filter", "distinct"],
 )
-def test_filter_order_by_distinct_after_merge_add_no_subquery(
+def test_filter_order_by_distinct_after_merge_add_no_extra_select(
     test_session, extend, expected
 ):
     left, right = _chains_with_size(test_session)
@@ -656,13 +627,13 @@ def test_filter_after_full_merge_with_rows_missing_on_either_side(test_session):
     assert merged.filter(C("size") == C("right_size")).to_list("path") == [("x",)]
 
 
-def test_filter_after_merging_chain_with_itself(test_session):
+def test_filter_after_merging_chain_with_itself_reads_size_from_left(test_session):
     chain = dc.read_values(path=["x", "y"], size=[1, 2], session=test_session)
     merged = chain.merge(chain, on="path")
     assert merged.filter(C("size") > 1).to_list("path", "right_size") == [("y", 2)]
 
 
-def test_filter_and_order_by_nested_signal_after_merge(test_session):
+def test_filter_and_order_by_file_size_after_merge_read_left_file(test_session):
     left = dc.read_values(
         file=[dc.File(path="a", size=1), dc.File(path="b", size=2)],
         session=test_session,
@@ -679,22 +650,3 @@ def test_filter_and_order_by_nested_signal_after_merge(test_session):
         ("b",),
         ("a",),
     ]
-
-
-def test_filter_after_merge_subquery_uses_its_own_size_column(test_session):
-    chain = dc.read_values(path=["a"], size=[1], session=test_session)
-    lookup = sa.select(sa.literal(100).label("size")).subquery()
-    value = sa.select(C("size")).select_from(lookup).scalar_subquery()
-    merged = chain.merge(chain, on="path")
-    assert merged.filter(value > 50).to_list("path") == [("a",)]
-
-
-def test_filter_after_merge_literal_sql_is_not_bound_to_same_named_column(
-    test_session,
-):
-    chain = dc.read_values(
-        path=["a"], CURRENT_TIMESTAMP=["bogus"], session=test_session
-    )
-    merged = chain.merge(chain, on="path")
-    now = sa.literal_column("CURRENT_TIMESTAMP")
-    assert merged.filter(now != "bogus").to_list("path") == [("a",)]

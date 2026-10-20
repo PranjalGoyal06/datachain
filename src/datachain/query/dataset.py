@@ -24,12 +24,7 @@ from sqlalchemy import Column
 from sqlalchemy.sql import func as f
 from sqlalchemy.sql.elements import ColumnClause, ColumnElement, Label
 from sqlalchemy.sql.expression import label
-from sqlalchemy.sql.selectable import (
-    GenerativeSelect,
-    Select,
-    SelectBase,
-    TableClause,
-)
+from sqlalchemy.sql.selectable import GenerativeSelect, Select, TableClause
 from sqlalchemy.sql.visitors import replacement_traverse
 
 from datachain.catalog.catalog import clone_catalog_with_cache
@@ -185,9 +180,6 @@ def _bind_shared_names(cols: Iterable[Any], query: Select) -> tuple[Any, ...]:
         return tuple(cols)
 
     def bind(element, **_kwargs):
-        # A nested SELECT resolves names against its own FROM
-        if isinstance(element, SelectBase):
-            return element
         if isinstance(element, C) and element.table is None:
             return names.get(element.name)
         return None
