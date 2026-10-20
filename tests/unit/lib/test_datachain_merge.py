@@ -568,11 +568,18 @@ def test_filter_after_merge_reads_size_from_left_and_right_size_from_right(
     assert merged.filter(expr()).to_list("path") == [(expected,)]
 
 
-def test_order_by_size_after_merge_sorts_by_left_size(test_session):
+@pytest.mark.parametrize(
+    "descending,expected",
+    [(False, "x"), (True, "y")],
+    ids=["ascending", "descending"],
+)
+def test_order_by_size_after_merge_sorts_by_left_size(
+    test_session, descending, expected
+):
     left, right = _chains_with_size(test_session)
     merged = left.merge(right, on="path")
-    top = merged.order_by("size", descending=True).limit(1)
-    assert top.to_list("path") == [("y",)]
+    top = merged.order_by("size", descending=descending).limit(1)
+    assert top.to_list("path") == [(expected,)]
 
 
 def test_distinct_size_after_merge_dedupes_by_left_size(test_session):
