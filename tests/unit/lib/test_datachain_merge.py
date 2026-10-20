@@ -2,6 +2,7 @@ import math
 
 import pandas as pd
 import pytest
+import sqlalchemy as sa
 from pydantic import BaseModel
 from sqlalchemy import func
 
@@ -650,3 +651,13 @@ def test_filter_and_order_by_file_size_after_merge_read_left_file(test_session):
         ("b",),
         ("a",),
     ]
+
+
+def test_filter_after_merge_does_not_bind_size_inside_sqlalchemy_select(test_session):
+    # Artificial for now: only hand-written SQLAlchemy, not a DataChain call,
+    # puts a select inside a filter
+    left, right = _chains_with_size(test_session)
+    merged = left.merge(right, on="path")
+    allowed = sa.select(sa.literal(3).label("size")).subquery()
+    in_allowed = C("right_size").in_(sa.select(C("size")).select_from(allowed))
+    assert merged.filter(in_allowed).to_list("path", "right_size") == [("x", 3)]
