@@ -537,12 +537,23 @@ def test_merge_with_drops_sys_columns(test_session):
     assert len(sys_rand) == len(set(sys_rand))
 
 
-def _shared_name_chains(session, right_paths=("x", "y"), right_sizes=(3, 1)):
+# In these tests both sides have `size`. The merge renames the right one to
+# `right_size` only in its SELECT list, so in the same SELECT a bare `size`
+# matches both sides unless it is bound to the left column.
+
+
+def _chains_with_size(session, right_paths=("x", "y"), right_sizes=(3, 1)):
+    """Left chain: x has size 1, y has size 2. Right chain: given paths and sizes."""
     left = dc.read_values(path=["x", "y"], size=[1, 2], session=session)
     right = dc.read_values(
         path=list(right_paths), size=list(right_sizes), session=session
     )
     return left, right
+
+
+def _select_count(chain) -> int:
+    query = chain._query.apply_steps().select()
+    return str(query.compile()).count("SELECT")
 
 
 @pytest.mark.parametrize(
@@ -553,29 +564,30 @@ def _shared_name_chains(session, right_paths=("x", "y"), right_sizes=(3, 1)):
         (lambda: C("size") > C("right_size"), "y"),
         (lambda: C("right_size") > C("size"), "x"),
     ],
-    ids=["left", "right", "left-vs-right", "right-vs-left"],
+    ids=["size", "right-size", "size-gt-right-size", "right-size-gt-size"],
 )
-def test_merge_filter_shared_column_name(test_session, expr, expected):
-    left, right = _shared_name_chains(test_session)
+def test_merge_then_filter_tells_size_from_right_size(test_session, expr, expected):
+    left, right = _chains_with_size(test_session)
     merged = left.merge(right, on="path")
     assert merged.filter(expr()).to_list("path") == [(expected,)]
 
 
-def test_merge_order_by_shared_column_name(test_session):
-    left, right = _shared_name_chains(test_session)
+def test_merge_then_order_by_size_sorts_by_left_size(test_session):
+    left, right = _chains_with_size(test_session)
     merged = left.merge(right, on="path")
+    # y has the larger size, x has the larger right_size
     top = merged.order_by("size", descending=True).limit(1)
     assert top.to_list("path") == [("y",)]
 
 
-def test_merge_select_shared_column_name(test_session):
-    left, right = _shared_name_chains(test_session)
+def test_merge_then_select_size_and_right_size(test_session):
+    left, right = _chains_with_size(test_session)
     merged = left.merge(right, on="path")
     assert sorted(merged.select("size", "right_size").to_list()) == [(1, 3), (2, 1)]
 
 
-def test_merge_group_by_shared_column_name(test_session):
-    left, right = _shared_name_chains(test_session, right_sizes=(5, 5))
+def test_merge_then_group_by_size_or_right_size(test_session):
+    left, right = _chains_with_size(test_session, right_sizes=(5, 5))
     merged = left.merge(right, on="path")
     grouped = merged.group_by(total=dc.func.sum("size"), partition_by="right_size")
     assert grouped.to_list("right_size", "total") == [(5, 3)]
@@ -584,8 +596,8 @@ def test_merge_group_by_shared_column_name(test_session):
     assert sorted(grouped.to_list("size", "cnt")) == [(1, 1), (2, 1)]
 
 
-def test_merge_chained_ops_on_shared_column_name(test_session):
-    left, right = _shared_name_chains(test_session)
+def test_merge_then_filter_order_by_mutate(test_session):
+    left, right = _chains_with_size(test_session)
     merged = left.merge(right, on="path")
     result = (
         merged.filter(C("size") >= 1)
@@ -594,11 +606,6 @@ def test_merge_chained_ops_on_shared_column_name(test_session):
         .to_list("path", "size", "diff")
     )
     assert result == [("x", 1, 2), ("y", 2, -1)]
-
-
-def _select_count(chain) -> int:
-    query = chain._query.apply_steps().select()
-    return str(query.compile()).count("SELECT")
 
 
 @pytest.mark.parametrize(
@@ -611,34 +618,37 @@ def _select_count(chain) -> int:
     ],
     ids=["filter", "order-by-limit", "order-by-filter", "distinct"],
 )
-def test_merge_shared_column_name_adds_no_select(test_session, extend, expected):
-    left, right = _shared_name_chains(test_session, right_sizes=(1, 1))
+def test_merge_then_filter_order_by_distinct_add_no_select(
+    test_session, extend, expected
+):
+    # both right sizes are 1, so distinct on right_size would return one row
+    left, right = _chains_with_size(test_session, right_sizes=(1, 1))
     chain = extend(left.merge(right, on="path"))
     assert sorted(chain.to_list("path")) == expected
-    # one SELECT over the join, the clauses add none
+    # one SELECT over the join; the clauses don't wrap it in another one
     assert _select_count(chain) == _select_count(left) + _select_count(right) + 1
 
 
-def test_merge_right_on_shared_column_name(test_session):
+def test_merge_right_on_then_filter_tells_size_from_right_size(test_session):
     left = dc.read_values(path=["x", "y"], size=[1, 2], session=test_session)
     right = dc.read_values(name=["x", "y"], size=[3, 1], session=test_session)
     merged = left.merge(right, on="path", right_on="name")
     assert merged.filter(C("size") > C("right_size")).to_list("path") == [("y",)]
 
 
-@pytest.mark.parametrize("inner", [True, False])
-def test_merge_shared_column_name_join_type(test_session, inner):
-    left, right = _shared_name_chains(
-        test_session, right_paths=("x",), right_sizes=(1,)
-    )
+@pytest.mark.parametrize("inner", [True, False], ids=["inner", "left"])
+def test_merge_with_unmatched_rows_then_filter_by_size(test_session, inner):
+    # right has only x, so y has no match
+    left, right = _chains_with_size(test_session, right_paths=("x",), right_sizes=(1,))
     merged = left.merge(right, on="path", inner=inner)
     assert merged.filter(C("size") == C("right_size")).to_list("path") == [("x",)]
     expected = [] if inner else [("y", None)]
     assert merged.filter(C("size") > 1).to_list("path", "right_size") == expected
 
 
-def test_merge_full_shared_column_name_with_nulls(test_session):
-    left, right = _shared_name_chains(
+def test_full_merge_with_unmatched_rows_then_filter_by_size(test_session):
+    # y is only on the left, z is only on the right
+    left, right = _chains_with_size(
         test_session, right_paths=("x", "z"), right_sizes=(1, 3)
     )
     merged = left.merge(right, on="path", full=True)
@@ -649,13 +659,13 @@ def test_merge_full_shared_column_name_with_nulls(test_session):
     assert merged.filter(C("size") == C("right_size")).to_list("path") == [("x",)]
 
 
-def test_merge_self_shared_column_name(test_session):
+def test_self_merge_then_filter_by_size(test_session):
     chain = dc.read_values(path=["x", "y"], size=[1, 2], session=test_session)
     merged = chain.merge(chain, on="path")
     assert merged.filter(C("size") > 1).to_list("path", "right_size") == [("y", 2)]
 
 
-def test_merge_nested_file_shared_column_name(test_session):
+def test_merge_then_filter_and_order_by_nested_file_size(test_session):
     left = dc.read_values(
         file=[dc.File(path="a", size=1), dc.File(path="b", size=2)],
         session=test_session,
@@ -674,18 +684,20 @@ def test_merge_nested_file_shared_column_name(test_session):
     ]
 
 
-def test_merge_filter_keeps_names_inside_subquery(test_session):
+def test_merge_then_filter_leaves_names_in_nested_select_alone(test_session):
     chain = dc.read_values(path=["a"], size=[1], session=test_session)
+    # `size` here is the nested SELECT's own column (100), not the merge's `size`
     lookup = sa.select(sa.literal(100).label("size")).subquery()
     value = sa.select(C("size")).select_from(lookup).scalar_subquery()
     merged = chain.merge(chain, on="path")
     assert merged.filter(value > 50).to_list("path") == [("a",)]
 
 
-def test_merge_filter_keeps_literal_column(test_session):
+def test_merge_then_filter_leaves_literal_column_alone(test_session):
     chain = dc.read_values(
         path=["a"], CURRENT_TIMESTAMP=["bogus"], session=test_session
     )
     merged = chain.merge(chain, on="path")
+    # raw SQL for the CURRENT_TIMESTAMP function, not the column of that name
     now = sa.literal_column("CURRENT_TIMESTAMP")
     assert merged.filter(now != "bogus").to_list("path") == [("a",)]
