@@ -24,7 +24,6 @@ from typing import (
 )
 
 import sqlalchemy
-from fsspec.utils import stringify_path
 from pydantic import BaseModel
 
 from datachain import json, semver
@@ -3113,25 +3112,11 @@ class DataChain:
             max_threads=num_threads or 1,
             client_config=client_config,
         )
-        from datachain.client.fsspec import Client
-
-        is_local = Client.get_implementation(stringify_path(output)).PREFIX == "file://"
-
-        def files(rows_iter):
-            for (file,) in rows_iter:
-                # a local disk cannot hold an empty path segment
-                if (
-                    is_local
-                    and file
-                    and "//" in file._get_destination_suffix(placement)
-                ):
-                    logger.warning("File '%s' not exported: path has '//'", file.path)
-                    progress_bar.update(1)
-                    continue
-                yield file
-
         with closing(chain.to_iter(signal)) as rows_iter:
-            file_exporter.run(files(rows_iter), progress_bar)
+            file_exporter.run(
+                (rows[0] for rows in rows_iter),
+                progress_bar,
+            )
 
     def shuffle(self) -> "Self":
         """Shuffle rows with a best-effort deterministic ordering.

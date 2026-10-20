@@ -71,13 +71,25 @@ class FileExporter(NodesThreadPool):
         self.use_cache = use_cache
         self.link_type = link_type
         self.client_config = client_config
+        # imported here: client/local.py imports this module
+        from datachain.client.fsspec import Client
+        from datachain.client.local import FileClient
+
+        self.is_local = Client.get_implementation(output) is FileClient
 
     def done_task(self, done):
         for task in done:
             task.result()
 
     def do_task(self, file: "File | None"):
-        if file is not None:
+        # a local disk cannot hold an empty path segment
+        if (
+            file is not None
+            and self.is_local
+            and "//" in file._get_destination_suffix(self.placement)
+        ):
+            logger.warning("File '%s' not exported: path has '//'", file.path)
+        elif file is not None:
             file.export(
                 self.output,
                 self.placement,
@@ -521,7 +533,6 @@ class File(DataModel):
             file.parent  # 'data/subdir'
             ```
         """
-        # not PurePosixPath: it drops the '//' that the key and SQL keep
         return posixpath.dirname(self.path) or "."
 
     @contextmanager

@@ -8,6 +8,7 @@ import requests
 
 import datachain as dc
 from datachain.cli import garbage_collect
+from datachain.client import Client
 from datachain.error import DatasetNotFoundError
 from datachain.lib.listing import parse_listing_uri
 from tests.data import ENTRIES
@@ -317,9 +318,20 @@ def test_cp_double_subdir(cloud_test_catalog):
     "src,expected", [("", {"d": {"e.txt": "real"}}), ("d/", {"e.txt": "real"})]
 )
 @pytest.mark.parametrize("cloud_type", ["s3"], indirect=True)
-def test_cp_skips_keys_with_double_slash(cloud_test_catalog, caplog, src, expected):
+def test_cp_skips_keys_with_double_slash(
+    cloud_test_catalog, caplog, monkeypatch, src, expected
+):
     ctc = cloud_test_catalog
     client = ctc.catalog.get_client(ctc.src_uri)
+    fetched = []
+    fetch_nodes = Client.fetch_nodes
+
+    def spy(self, nodes, *args, **kwargs):
+        nodes = list(nodes)
+        fetched.extend(n.path for n in nodes)
+        return fetch_nodes(self, iter(nodes), *args, **kwargs)
+
+    monkeypatch.setattr(Client, "fetch_nodes", spy)
     prefix = "cp-double-slash"
     client.fs.pipe_file(f"{client.name}/{prefix}/d/e.txt", b"real")
     client.fs.pipe_file(f"{client.name}/{prefix}/d//e.txt", b"odd")
@@ -333,6 +345,7 @@ def test_cp_skips_keys_with_double_slash(cloud_test_catalog, caplog, src, expect
         client.fs.invalidate_cache()
 
     assert tree_from_path(dest) == expected
+    assert fetched == [f"{prefix}/d/e.txt"]
     assert f"File '{prefix}/d//e.txt' not copied: path has '//'" in caplog.text
 
 
