@@ -546,7 +546,7 @@ def _chains_with_size(session, right_paths=("x", "y"), right_sizes=(3, 1)):
 
 def _select_count(chain) -> int:
     query = chain._query.apply_steps().select()
-    return str(query.compile()).count("SELECT")
+    return str(query.compile(dialect=chain._query.dialect)).count("SELECT")
 
 
 @pytest.mark.parametrize(
