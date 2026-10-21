@@ -73,7 +73,9 @@ def test_scandir_success(client):
 
 @pytest.mark.parametrize("cloud_type", ["s3", "gs", "azure"], indirect=True)
 @pytest.mark.parametrize("tree", [{"a": "x"}], indirect=True)
-def test_scandir_keeps_keys_with_empty_segments(client):
+def test_scandir_lists_double_slash_keys_but_not_leading_slash_or_folder_markers(
+    client,
+):
     keys = ["d//e.txt", "/lead.txt", "folder/"]
     for key in keys:
         body = b"" if key.endswith("/") else b"x"
