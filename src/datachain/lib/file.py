@@ -71,7 +71,6 @@ class FileExporter(NodesThreadPool):
         self.use_cache = use_cache
         self.link_type = link_type
         self.client_config = client_config
-        # imported here: client/local.py imports this module
         from datachain.client.fsspec import Client
         from datachain.client.local import FileClient
 
