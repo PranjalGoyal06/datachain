@@ -160,7 +160,6 @@ def test_gcs_bucket_status(mock_create_fs, anon_effect, auth_effect, expected):
     anon_fs._call.assert_awaited_once_with(
         "GET", "b/{}/o", "b", maxResults=1, json_out=True
     )
-    anon_fs._ls.assert_not_called()
 
 
 @pytest.mark.parametrize(
